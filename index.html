@@ -5111,5 +5111,116 @@ function plannerRepeatUfpe(){
   };
 }
 </script>
+  <style>
+.drag-handle{display:flex;align-items:center;justify-content:center;width:26px;align-self:stretch;margin-right:6px;flex-shrink:0;color:#c8c0b0;font-size:18px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:6px;transition:color 0.15s,background 0.15s;}
+.drag-handle:hover{color:var(--accent);background:#eef3f8;}
+.drag-handle:active{cursor:grabbing;}
+.lesson-card.dragging{opacity:0.45;background:#eef3f8;}
+.lesson-card.drop-before{box-shadow:0 -3px 0 0 var(--accent);}
+.lesson-card.drop-after{box-shadow:0 3px 0 0 var(--accent);}
+body.is-dragging{cursor:grabbing;user-select:none;-webkit-user-select:none;}
+</style>
+<script>
+// ── AULAS UFPE: reordenar aulas arrastando pela alça ⠿ ──
+var _drag = null;
+
+function ufpeClearDropMarks() {
+  document.querySelectorAll('#app-ufpe .drop-before, #app-ufpe .drop-after').forEach(function(c){
+    c.classList.remove('drop-before', 'drop-after');
+  });
+}
+
+function ufpeStartDrag(e, card, subj) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();
+  _drag = { card: card, subj: subj, target: null, after: false, pid: e.pointerId, handle: e.currentTarget };
+  try { _drag.handle.setPointerCapture(e.pointerId); } catch(err) {}
+  card.classList.add('dragging');
+  document.body.classList.add('is-dragging');
+}
+
+function ufpeMoveDrag(e) {
+  if (!_drag || e.pointerId !== _drag.pid) return;
+  var sec = _drag.card.closest('.subject-section');
+  var cards = Array.prototype.slice.call(sec.querySelectorAll('.lesson-card[data-ufpe]'));
+
+  // autoscroll perto das bordas da tela
+  if (e.clientY < 70) window.scrollBy(0, -14);
+  else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+
+  ufpeClearDropMarks();
+  _drag.target = null;
+  for (var i = 0; i < cards.length; i++) {
+    var c = cards[i];
+    if (c === _drag.card) continue;
+    var r = c.getBoundingClientRect();
+    if (e.clientY >= r.top && e.clientY <= r.bottom) {
+      _drag.target = c;
+      _drag.after = e.clientY > r.top + r.height / 2;
+      c.classList.add(_drag.after ? 'drop-after' : 'drop-before');
+      break;
+    }
+  }
+}
+
+function ufpeEndDrag(e) {
+  if (!_drag || e.pointerId !== _drag.pid) return;
+  var d = _drag; _drag = null;
+  try { d.handle.releasePointerCapture(e.pointerId); } catch(err) {}
+  d.card.classList.remove('dragging');
+  document.body.classList.remove('is-dragging');
+  ufpeClearDropMarks();
+  if (e.type === 'pointercancel' || !d.target) return;
+
+  var arr = (state.ufpe.customLessons || {})[d.subj];
+  if (!arr) return;
+  var fromId = d.card.dataset.id.replace(/^u_/, '');
+  var toId   = d.target.dataset.id.replace(/^u_/, '');
+  var from = arr.findIndex(function(l){ return l._customId === fromId; });
+  if (from === -1) return;
+  var item = arr.splice(from, 1)[0];
+  var to = arr.findIndex(function(l){ return l._customId === toId; });
+  if (to === -1) { arr.splice(from, 0, item); return; }
+  arr.splice(d.after ? to + 1 : to, 0, item);
+  save();
+
+  // mantém as matérias abertas e a posição da rolagem
+  var open = Array.prototype.map.call(
+    document.querySelectorAll('#app-ufpe .subject-section:not(.collapsed)'),
+    function(s){ return s.dataset.subj; }
+  );
+  var y = window.scrollY;
+  renderUfpe();
+  document.querySelectorAll('#app-ufpe .subject-section').forEach(function(s){
+    if (open.indexOf(s.dataset.subj) !== -1) s.classList.remove('collapsed');
+  });
+  window.scrollTo(0, y);
+}
+
+function ufpeAddDragHandles() {
+  document.querySelectorAll('#app-ufpe .subject-section').forEach(function(sec) {
+    var subj = sec.dataset.subj;
+    sec.querySelectorAll('.lesson-card[data-ufpe]').forEach(function(card) {
+      var row = card.querySelector('.lesson-card-top-row');
+      if (!row || row.querySelector('.drag-handle')) return;
+      var h = document.createElement('div');
+      h.className = 'drag-handle';
+      h.textContent = '⠿';
+      h.title = 'Arraste para reordenar';
+      h.addEventListener('click', function(e){ e.stopPropagation(); });
+      h.addEventListener('pointerdown', function(e){ ufpeStartDrag(e, card, subj); });
+      h.addEventListener('pointermove', ufpeMoveDrag);
+      h.addEventListener('pointerup', ufpeEndDrag);
+      h.addEventListener('pointercancel', ufpeEndDrag);
+      row.insertBefore(h, row.firstChild);
+    });
+  });
+}
+
+// injeta as alças sempre que a lista de aulas UFPE for redesenhada
+var _renderUfpeOrig2 = renderUfpe;
+renderUfpe = function() { _renderUfpeOrig2(); ufpeAddDragHandles(); };
+renderUfpe();
+</script>
 </body>
 </html>
